@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>3D Auto | Touch & Tastatur | Direkte Lenkung</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            touch-action: manipulation;
+            background: #000;
+        }
+        /* Info-Elemente */
+        #info {
+            position: absolute; top: 20px; left: 20px; background: rgba(0,0,0,0.75); backdrop-filter: blur(8px);
+            color: white; padding: 8px 18px; border-radius: 30px; pointer-events: none; z-index: 20;
+            font-size: 14px; font-weight: 500; border-left: 4px solid #ff3300; font-family: monospace;
+        }
+        #speed {
+            position: absolute; bottom: 100px; right: 20px; background: rgba(0,0,0,0.8); backdrop-filter: blur(8px);
+            color: #ff8844; padding: 10px 22px; border-radius: 40px; font-family: 'Courier New', monospace;
+            font-size: 28px; font-weight: bold; letter-spacing: 2px; pointer-events: none; z-index: 20;
+            border: 1px solid rgba(255,136,68,0.5);
+        }
+        .speed-unit { font-size: 14px; margin-left: 5px; color: #aaa; }
+        .controls-hint {
+            position: absolute; bottom: 20px; left: 20px; background: rgba(0,0,0,0.65); backdrop-filter: blur(5px);
+            color: #ddd; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-family: monospace;
+            pointer-events: none; z-index: 20;
+        }
+        /* Touch-Buttons */
+        .touch-panel {
+            position: fixed;
+            bottom: 20px;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px;
+            gap: 15px;
+            z-index: 30;
+            pointer-events: none;
+        }
+        .touch-group {
+            display: flex;
+            gap: 15px;
+            background: rgba(0,0,0,0.5);
+            backdrop-filter: blur(10px);
+            border-radius: 60px;
+            padding: 12px 20px;
+            pointer-events: auto;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .touch-btn {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            background: rgba(30,30,40,0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            font-weight: bold;
+            color: white;
+            user-select: none;
+            touch-action: manipulation;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            transition: transform 0.05s, background 0.1s;
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+        .touch-btn:active {
+            transform: scale(0.92);
+            background: #ff8844;
+            color: #000;
+        }
+        .gas-btn { background: #2a6b2a; }
+        .brake-btn { background: #8b3a3a; }
+        .left-btn, .right-btn { background: #2a4a6b; }
+        @media (max-width: 700px) {
+            .touch-btn { width: 60px; height: 60px; font-size: 24px; }
+            .touch-group { padding: 8px 15px; }
+            #speed { font-size: 22px; padding: 6px 16px; bottom: 90px; }
+        }
+        @media (max-width: 500px) {
+            .touch-btn { width: 55px; height: 55px; font-size: 22px; }
+            .touch-group { gap: 10px; }
+        }
+    </style>
+</head>
+<body>
+    <div id="info">🚗 DIREKTE LENKUNG | Touch & Tastatur | Geschwindigkeitsabhängiger Einschlag</div>
+    <div id="speed">⚡ 0 <span class="speed-unit">km/h</span></div>
+    <div class="controls-hint">🎮 WASD | Touch-Buttons unten</div>
+
+    <!-- Touch-Buttons -->
+    <div class="touch-panel">
+        <div class="touch-group">
+            <div class="touch-btn left-btn" id="touch-left">◀</div>
+            <div class="touch-btn right-btn" id="touch-right">▶</div>
+        </div>
+        <div class="touch-group">
+            <div class="touch-btn gas-btn" id="touch-gas">⛽</div>
+            <div class="touch-btn brake-btn" id="touch-brake">🛑</div>
+        </div>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.128.0/build/three.module.js"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+
+        // ---------- SZENE ----------
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0a1a3a);
+        scene.fog = new THREE.FogExp2(0x0a1a3a, 0.005);
+
+        const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 250);
+        camera.position.set(0, 3.5, 9);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.body.appendChild(renderer.domElement);
+
+        // ---------- BELEUCHTUNG ----------
+        const ambientLight = new THREE.AmbientLight(0x5c6e8c, 0.55);
+        scene.add(ambientLight);
+        const sunLight = new THREE.DirectionalLight(0xfff5c0, 1.3);
+        sunLight.position.set(12, 15, 5);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.width = 1024;
+        sunLight.shadow.mapSize.height = 1024;
+        sunLight.shadow.camera.near = 0.5;
+        sunLight.shadow.camera.far = 50;
+        sunLight.shadow.camera.left = -12;
+        sunLight.shadow.camera.right = 12;
+        sunLight.shadow.camera.top = 12;
+        sunLight.shadow.camera.bottom = -12;
+        scene.add(sunLight);
+        const fillLight = new THREE.PointLight(0x88aacc, 0.45);
+        fillLight.position.set(0, -1.5, 0);
+        scene.add(fillLight);
+        const backLight = new THREE.PointLight(0xffaa66, 0.5);
+        backLight.position.set(-3, 2, -6);
+        scene.add(backLight);
+        const headlight = new THREE.SpotLight(0xffaa77, 0.9);
+        headlight.angle = 0.5;
+        headlight.penumbra = 0.4;
+        headlight.distance = 25;
+        headlight.castShadow = true;
+        scene.add(headlight);
+
+        // ---------- BODEN ----------
+        const groundSize = 200;
+        const groundMat = new THREE.MeshStandardMaterial({ color: 0x5c9e3e, roughness: 0.85, metalness: 0.05 });
+        const groundPlane = new THREE.Mesh(new THREE.PlaneGeometry(groundSize, groundSize), groundMat);
+        groundPlane.rotation.x = -Math.PI / 2;
+        groundPlane.position.y = -0.2;
+        groundPlane.receiveShadow = true;
+        scene.add(groundPlane);
+        const gridHelper = new THREE.GridHelper(groundSize, 40, 0xaaccaa, 0x558855);
+        gridHelper.position.y = -0.15;
+        gridHelper.material.transparent = true;
+        gridHelper.material.opacity = 0.35;
+        scene.add(gridHelper);
+        for (let i = 0; i < 1200; i++) {
+            const blade = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.22, 3), new THREE.MeshStandardMaterial({ color: 0x7cb55a }));
+            const x = (Math.random() - 0.5) * (groundSize - 10);
+            const z = (Math.random() - 0.5) * (groundSize - 10);
+            blade.position.set(x, -0.15, z);
+            blade.castShadow = false;
+            scene.add(blade);
+        }
+
+        // ---------- WELTGRENZEN ----------
+        const worldBounds = {
+            minX: -groundSize/2 + 3.5,
+            maxX: groundSize/2 - 3.5,
+            minZ: -groundSize/2 + 3.5,
+            maxZ: groundSize/2 - 3.5
+        };
+
+        // ---------- AUTO ----------
+        const carGroup = new THREE.Group();
+        const bodyMat = new THREE.MeshStandardMaterial({ color: 0xdd2e2e, roughness: 0.28, metalness: 0.65, emissive: 0x220000 });
+        const body = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.48, 2.2), bodyMat);
+        body.castShadow = true;
+        body.position.y = 0.16;
+        carGroup.add(body);
+        const roofMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8 });
+        const roof = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.32, 1.38), roofMat);
+        roof.position.set(0, 0.53, -0.1);
+        carGroup.add(roof);
+        const glassMat = new THREE.MeshStandardMaterial({ color: 0x88aaff, metalness: 0.95, transparent: true, opacity: 0.7 });
+        const frontWind = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.22, 0.44), glassMat);
+        frontWind.position.set(0, 0.63, 0.8);
+        carGroup.add(frontWind);
+        const backWind = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.22, 0.44), glassMat);
+        backWind.position.set(0, 0.63, -0.98);
+        carGroup.add(backWind);
+        const sideMat = new THREE.MeshStandardMaterial({ color: 0xaa2a2a });
+        const leftSkirt = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.14, 2.05), sideMat);
+        leftSkirt.position.set(-0.65, 0.06, 0);
+        carGroup.add(leftSkirt);
+        const rightSkirt = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.14, 2.05), sideMat);
+        rightSkirt.position.set(0.65, 0.06, 0);
+        carGroup.add(rightSkirt);
+
+        // Räder
+        const wheelMatTire = new THREE.MeshStandardMaterial({ color: 0x2a2a2a });
+        const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.55, 28);
+        const rimMat = new THREE.MeshStandardMaterial({ color: 0xccccdd, metalness: 0.85 });
+        const rimGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.09, 12);
+        const wheelPositions = [
+            { x: -0.78, z: 0.94, steer: true }, { x: 0.78, z: 0.94, steer: true },
+            { x: -0.78, z: -0.9, steer: false }, { x: 0.78, z: -0.9, steer: false }
+        ];
+        const wheels = [];
+        wheelPositions.forEach(pos => {
+            const wGroup = new THREE.Group();
+            const wheel = new THREE.Mesh(wheelGeo, wheelMatTire);
+            wheel.rotation.z = Math.PI/2;
+            wheel.castShadow = true;
+            wGroup.add(wheel);
+            const rim = new THREE.Mesh(rimGeo, rimMat);
+            rim.rotation.z = Math.PI/2;
+            rim.position.set(0, 0, 0.03);
+            wGroup.add(rim);
+            wGroup.position.set(pos.x, 0.12, pos.z);
+            wGroup.userData = { steerable: pos.steer };
+            carGroup.add(wGroup);
+            wheels.push(wGroup);
+        });
+
+        const headMat = new THREE.MeshStandardMaterial({ color: 0xffcc88, emissive: 0xff4411, emissiveIntensity: 0.6 });
+        const leftHead = new THREE.Mesh(new THREE.SphereGeometry(0.13, 24, 24), headMat);
+        leftHead.position.set(-0.54, 0.23, 1.14);
+        const rightHead = new THREE.Mesh(new THREE.SphereGeometry(0.13, 24, 24), headMat);
+        rightHead.position.set(0.54, 0.23, 1.14);
+        carGroup.add(leftHead);
+        carGroup.add(rightHead);
+        const tailMat = new THREE.MeshStandardMaterial({ color: 0xff3333, emissive: 0x441100 });
+        const leftTail = new THREE.Mesh(new THREE.SphereGeometry(0.11, 20, 20), tailMat);
+        leftTail.position.set(-0.54, 0.22, -1.15);
+        const rightTail = new THREE.Mesh(new THREE.SphereGeometry(0.11, 20, 20), tailMat);
+        rightTail.position.set(0.54, 0.22, -1.15);
+        carGroup.add(leftTail);
+        carGroup.add(rightTail);
+        const exhaustMat = new THREE.MeshStandardMaterial({ color: 0xbbaa99, metalness: 0.9 });
+        const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.48, 12), exhaustMat);
+        exhaust.rotation.x = Math.PI/2;
+        exhaust.position.set(-0.6, 0.06, -1.1);
+        carGroup.add(exhaust);
+        const spoilerMat = new THREE.MeshStandardMaterial({ color: 0xcc3333 });
+        const spoiler = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.08, 0.2), spoilerMat);
+        spoiler.position.set(0, 0.73, -0.7);
+        carGroup.add(spoiler);
+        carGroup.position.y = 0.1;
+        carGroup.castShadow = true;
+        scene.add(carGroup);
+
+        // ---------- HINDERNISSE (Bäume & Steine) ----------
+        const obstacles = [];
+        function createTree(x, z) {
+            const group = new THREE.Group();
+            const trunkMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b });
+            const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.72, 1.5, 8), trunkMat);
+            trunk.position.y = 0.75;
+            group.add(trunk);
+            const foliageMat = new THREE.MeshStandardMaterial({ color: 0x5c9e3e });
+            const f1 = new THREE.Mesh(new THREE.ConeGeometry(0.85, 1.1, 12), foliageMat);
+            f1.position.y = 1.45;
+            group.add(f1);
+            const f2 = new THREE.Mesh(new THREE.ConeGeometry(0.7, 1.0, 12), foliageMat);
+            f2.position.y = 2.2;
+            group.add(f2);
+            const f3 = new THREE.Mesh(new THREE.ConeGeometry(0.55, 0.9, 12), foliageMat);
+            f3.position.y = 2.85;
+            group.add(f3);
+            group.position.set(x, -0.2, z);
+            scene.add(group);
+            return { mesh: group, radius: 0.72, position: new THREE.Vector3(x, 0, z) };
+        }
+        const treePositions = [];
+        for (let i = 0; i < 100; i++) {
+            let x, z, safe = false;
+            let attempts = 0;
+            while (!safe && attempts < 35) {
+                x = (Math.random() - 0.5) * (groundSize - 14);
+                z = (Math.random() - 0.5) * (groundSize - 14);
+                if (Math.hypot(x, z) > 6.5) {
+                    let tooClose = false;
+                    for (let p of treePositions) {
+                        if (Math.hypot(p.x - x, p.z - z) < 2.3) { tooClose = true; break; }
+                    }
+                    if (!tooClose) { safe = true; treePositions.push({ x, z }); }
+                }
+                attempts++;
+            }
+            if (safe) obstacles.push(createTree(x, z));
+        }
+        const rockMat = new THREE.MeshStandardMaterial({ color: 0x8a7a6a });
+        for (let i = 0; i < 50; i++) {
+            let x = (Math.random() - 0.5) * (groundSize - 12);
+            let z = (Math.random() - 0.5) * (groundSize - 12);
+            if (Math.hypot(x, z) > 5.5) {
+                const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.55), rockMat);
+                rock.scale.set(0.9, 0.7, 0.8);
+                rock.position.set(x, -0.15, z);
+                rock.castShadow = true;
+                scene.add(rock);
+                obstacles.push({ mesh: rock, radius: 0.68, position: new THREE.Vector3(x, 0, z) });
+            }
+        }
+
+        // ---------- PHYSIK ----------
+        let velocity = 0;
+        let lateralVel = 0;
+        let steeringInput = 0;        // -1..1
+        let currentSteerAngle = 0;
+        const maxSteerAngle = 0.85;
+        const steeringSpeed = 4.5;
+        const maxSpeed = 16.0;
+        const reverseMax = 7.0;
+        const accelForce = 19.0;
+        const brakeForce = 25.0;
+        const drag = 4.5;
+        const grip = 7.2;
+        let currentYaw = carGroup.rotation.y;
+
+        // Tasten (Tastatur + Touch)
+        const keys = { w: false, s: false, a: false, d: false };
+
+        // Touch-Button-Events
+        function initTouchControls() {
+            const gasBtn = document.getElementById('touch-gas');
+            const brakeBtn = document.getElementById('touch-brake');
+            const leftBtn = document.getElementById('touch-left');
+            const rightBtn = document.getElementById('touch-right');
+            
+            const activate = (key, state) => (e) => {
+                e.preventDefault();
+                keys[key] = state;
+            };
+            gasBtn.addEventListener('touchstart', activate('w', true));
+            gasBtn.addEventListener('touchend', activate('w', false));
+            gasBtn.addEventListener('mousedown', activate('w', true));
+            gasBtn.addEventListener('mouseup', activate('w', false));
+            
+            brakeBtn.addEventListener('touchstart', activate('s', true));
+            brakeBtn.addEventListener('touchend', activate('s', false));
+            brakeBtn.addEventListener('mousedown', activate('s', true));
+            brakeBtn.addEventListener('mouseup', activate('s', false));
+            
+            leftBtn.addEventListener('touchstart', activate('a', true));
+            leftBtn.addEventListener('touchend', activate('a', false));
+            leftBtn.addEventListener('mousedown', activate('a', true));
+            leftBtn.addEventListener('mouseup', activate('a', false));
+            
+            rightBtn.addEventListener('touchstart', activate('d', true));
+            rightBtn.addEventListener('touchend', activate('d', false));
+            rightBtn.addEventListener('mousedown', activate('d', true));
+            rightBtn.addEventListener('mouseup', activate('d', false));
+            
+            // Verhindern, dass die Seite beim Klicken auf Buttons scrollt
+            document.querySelectorAll('.touch-btn').forEach(btn => {
+                btn.addEventListener('touchstart', e => e.preventDefault());
+                btn.addEventListener('mousedown', e => e.preventDefault());
+            });
+        }
+
+        // Tastatur-Listener
+        window.addEventListener('keydown', (e) => {
+            const key = e.key.toLowerCase();
+            if (key === 'w') keys.w = true;
+            if (key === 's') keys.s = true;
+            if (key === 'a') keys.a = true;
+            if (key === 'd') keys.d = true;
+            if (['w','s','a','d','arrowup','arrowdown','arrowleft','arrowright'].includes(key)) e.preventDefault();
+        });
+        window.addEventListener('keyup', (e) => {
+            const key = e.key.toLowerCase();
+            if (key === 'w') keys.w = false;
+            if (key === 's') keys.s = false;
+            if (key === 'a') keys.a = false;
+            if (key === 'd') keys.d = false;
+        });
+
+        // Kollision
+        function handleCollisions(delta) {
+            const pos = carGroup.position;
+            let changed = false;
+            let nx = pos.x, nz = pos.z;
+            if (nx < worldBounds.minX) { nx = worldBounds.minX; changed = true; }
+            if (nx > worldBounds.maxX) { nx = worldBounds.maxX; changed = true; }
+            if (nz < worldBounds.minZ) { nz = worldBounds.minZ; changed = true; }
+            if (nz > worldBounds.maxZ) { nz = worldBounds.maxZ; changed = true; }
+            if (changed) {
+                carGroup.position.set(nx, pos.y, nz);
+                velocity *= 0.55;
+                lateralVel *= 0.4;
+            }
+            for (let obs of obstacles) {
+                const dx = carGroup.position.x - obs.position.x;
+                const dz = carGroup.position.z - obs.position.z;
+                const dist = Math.hypot(dx, dz);
+                const minDist = obs.radius + 0.85;
+                if (dist < minDist) {
+                    const angle = Math.atan2(dz, dx);
+                    const overlap = minDist - dist;
+                    const correctionX = Math.cos(angle) * overlap;
+                    const correctionZ = Math.sin(angle) * overlap;
+                    carGroup.position.x += correctionX;
+                    carGroup.position.z += correctionZ;
+                    const normal = new THREE.Vector3(dx, 0, dz).normalize();
+                    const velVec = new THREE.Vector3(
+                        Math.sin(currentYaw) * velocity + Math.cos(currentYaw) * lateralVel,
+                        0,
+                        Math.cos(currentYaw) * velocity - Math.sin(currentYaw) * lateralVel
+                    );
+                    const velAlong = velVec.dot(normal);
+                    if (velAlong < 0) {
+                        const restitution = 0.5;
+                        const newVelAlong = -velAlong * restitution;
+                        velVec.x += normal.x * (newVelAlong - velAlong);
+                        velVec.z += normal.z * (newVelAlong - velAlong);
+                        const forward = new THREE.Vector3(Math.sin(currentYaw), 0, Math.cos(currentYaw));
+                        const right = new THREE.Vector3(Math.cos(currentYaw), 0, -Math.sin(currentYaw));
+                        velocity = velVec.dot(forward);
+                        lateralVel = velVec.dot(right);
+                    }
+                    if (Math.abs(velocity) < 0.4) velocity = 0;
+                }
+            }
+        }
+
+        let lastTime = performance.now();
+        function updatePhysics() {
+            const now = performance.now();
+            let delta = Math.min(0.033, (now - lastTime) / 1000);
+            if (delta <= 0) { lastTime = now; return; }
+            lastTime = now;
+            
+            let throttle = 0;
+            if (keys.w) throttle = 1;
+            else if (keys.s) throttle = -1;
+            
+            if (throttle !== 0) {
+                const acc = (throttle > 0) ? accelForce : brakeForce;
+                velocity += acc * delta * throttle;
+                if (throttle > 0 && velocity > maxSpeed) velocity = maxSpeed;
+                if (throttle < 0 && velocity < -reverseMax) velocity = -reverseMax;
+            } else {
+                const friction = drag * delta;
+                if (Math.abs(velocity) > friction) velocity -= Math.sign(velocity) * friction;
+                else velocity = 0;
+            }
+            if (keys.s && velocity > 0.5) {
+                velocity -= brakeForce * 1.2 * delta;
+                if (velocity < 0) velocity = 0;
+            }
+            
+            lateralVel -= lateralVel * grip * delta;
+            
+            // Lenkung
+            let targetSteer = 0;
+            if (keys.a) targetSteer = 1;
+            if (keys.d) targetSteer = -1;
+            let steerDelta = (targetSteer - steeringInput) * steeringSpeed * delta;
+            steeringInput += steerDelta;
+            steeringInput = Math.min(1, Math.max(-1, steeringInput));
+            let speedFactor = Math.min(1.0, Math.abs(velocity) / maxSpeed);
+            let maxAllowedSteer = maxSteerAngle * (1 - speedFactor * 0.55);
+            maxAllowedSteer = Math.max(0.25, maxAllowedSteer);
+            currentSteerAngle = steeringInput * maxAllowedSteer;
+            
+            wheels.forEach(w => {
+                if (w.userData.steerable) w.rotation.y = currentSteerAngle;
+            });
+            
+            let turnRate = 0;
+            if (Math.abs(velocity) > 0.3) {
+                turnRate = currentSteerAngle * (Math.abs(velocity) * 1.2) * delta;
+                if (velocity < 0) turnRate = -turnRate;
+                currentYaw += turnRate;
+            }
+            carGroup.rotation.y = currentYaw;
+            
+            const forward = new THREE.Vector3(Math.sin(currentYaw), 0, Math.cos(currentYaw));
+            const right = new THREE.Vector3(Math.cos(currentYaw), 0, -Math.sin(currentYaw));
+            const move = forward.clone().multiplyScalar(velocity * delta);
+            const side = right.clone().multiplyScalar(lateralVel * delta);
+            carGroup.position.x += move.x + side.x;
+            carGroup.position.z += move.z + side.z;
+            
+            handleCollisions(delta);
+            
+            wheels.forEach(w => {
+                w.children.forEach(child => {
+                    if (child.geometry && child.geometry.type === 'CylinderGeometry') {
+                        child.rotation.x += velocity * delta * 9;
+                    }
+                });
+            });
+            
+            headlight.position.copy(carGroup.position);
+            headlight.position.y += 0.45;
+            headlight.position.x += forward.x * 1.2;
+            headlight.position.z += forward.z * 1.2;
+            headlight.target.position.copy(carGroup.position.clone().add(forward.clone().multiplyScalar(6)));
+            headlight.intensity = 0.7 + Math.min(0.8, Math.abs(velocity) / 14);
+            
+            const speedKmh = Math.abs(velocity * 5.9).toFixed(0);
+            document.getElementById('speed').innerHTML = `⚡ ${speedKmh} <span class="speed-unit">km/h</span>`;
+        }
+        
+        function updateCamera() {
+            const carPos = carGroup.position;
+            const speedNorm = Math.min(1.0, Math.abs(velocity) / maxSpeed);
+            const dist = 6.2 + speedNorm * 2.0;
+            const height = 2.8 + speedNorm * 0.7;
+            const offset = new THREE.Vector3(0, height, dist).applyEuler(new THREE.Euler(0, currentYaw, 0));
+            const targetPos = carPos.clone().add(offset);
+            camera.position.lerp(targetPos, 0.12);
+            camera.lookAt(carPos);
+        }
+        
+        // Staub
+        let dustParticles = [];
+        function updateDust() {
+            if (Math.abs(velocity) > 2.0 && Math.random() < 0.4) {
+                const dust = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.1, 4, 4),
+                    new THREE.MeshStandardMaterial({ color: 0xbbaa88, transparent: true, opacity: 0.6 })
+                );
+                dust.position.copy(carGroup.position);
+                dust.position.y = 0.05;
+                dust.position.x += (Math.random() - 0.5) * 0.8;
+                dust.position.z += (Math.random() - 0.5) * 1.0;
+                scene.add(dust);
+                dustParticles.push({ mesh: dust, life: 0.7 });
+            }
+            for (let i = dustParticles.length-1; i >= 0; i--) {
+                dustParticles[i].life -= 0.025;
+                dustParticles[i].mesh.scale.multiplyScalar(0.97);
+                dustParticles[i].mesh.material.opacity = dustParticles[i].life;
+                if (dustParticles[i].life <= 0) {
+                    scene.remove(dustParticles[i].mesh);
+                    dustParticles.splice(i,1);
+                }
+            }
+        }
+        
+        // Wolken
+        const clouds = [];
+        const cloudMatSky = new THREE.MeshStandardMaterial({ color: 0xeeffff, transparent: true, opacity: 0.7 });
+        for (let i = 0; i < 18; i++) {
+            const cloud = new THREE.Group();
+            [0.7, 0.9, 0.6].forEach(s => {
+                const part = new THREE.Mesh(new THREE.SphereGeometry(s, 7, 7), cloudMatSky);
+                part.position.set((Math.random() - 0.5)*1.5, (Math.random()-0.5)*0.5, (Math.random()-0.5)*1.2);
+                cloud.add(part);
+            });
+            cloud.position.set((Math.random() - 0.5)*110, 12 + Math.random()*6, (Math.random() - 0.5)*90);
+            scene.add(cloud);
+            clouds.push(cloud);
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            updatePhysics();
+            updateCamera();
+            updateDust();
+            clouds.forEach(cloud => {
+                cloud.position.x += 0.008;
+                if (cloud.position.x > groundSize/2 + 20) cloud.position.x = -groundSize/2 - 15;
+            });
+            renderer.render(scene, camera);
+        }
+        
+        initTouchControls();
+        animate();
+        
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        
+        console.log('✅ Touch-Steuerung aktiv – Auto mit direkter Lenkung');
+    </script>
+</body>
+</html>
